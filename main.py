@@ -140,7 +140,7 @@ def save_img(x_data, x_gen, epoch):
         normalize=True
     )
     if not opt.nowandb:
-        wandb.log({"samples" : [wandb.Image(i) for i in x_gen[0:opt.showSize]]})
+        wandb.log({"samples" : [wandb.Image(i) for i in x_gen[0:opt.showSize]]}, commit=False)
 
 class Generator(nn.Module):
     def __init__(self, ngpu):
@@ -404,7 +404,8 @@ class GRAMnet:
                 lossG = mmd
                 pearson_divergence = torch.mean(torch.pow(ratio - 1, 2))
                 lossF = -pearson_divergence
-                if not opt.clip_ratio:  # add positivity regularizer if not clipping
+                # Add positivity regularizer if not clipping
+                if not opt.clip_ratio:  
                     lossF -= torch.mean(ratio)
                 # Update G and F simultaneously
                 lossG.backward(retain_graph=True)
@@ -423,7 +424,10 @@ class GRAMnet:
                     save_img(x_data, netG(fixed_noise).detach(), epoch)
                     netG.train(True)
                 if not opt.nowandb:
-                    wandb.log({"lossG" : lossG, "lossF" : lossF})
+                    wandb.log({
+                        "lossG" : lossG, "lossF" : lossF, "mmd" : mmd,
+                        "pearson_divergence" : pearson_divergence,
+                    })
 
             # do checkpointing
             torch.save(netG.state_dict(), f'{opt.outf}/{opt.model}-netG-epoch={epoch}.pth')

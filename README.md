@@ -1,4 +1,4 @@
-# GRAMTorch: official PyTorch implementation of GRAM-nets
+# GRAMTorch: PyTorch implementation of GRAM-nets
 
 This example implements the paper [Generative Ratio Matching Networks](https://openreview.net/forum?id=SJg7spEYDS).
 
