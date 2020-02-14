@@ -316,14 +316,21 @@ def gaussian_gramian(esq, σ):
 def prepare(x_de, x_nu):
     return euclidsq(x_de, x_de), euclidsq(x_de, x_nu), euclidsq(x_nu, x_nu)
 
+USE_SOLVE = True
+
 def kmm_ratios(Kdede, Kdenu, λ):
     n_de, n_nu = Kdenu.shape
     if λ > 0:
         A = Kdede + λ * torch.eye(n_de).to(device)
     else:
         A = Kdede
-    B = torch.sum(Kdenu, 1, keepdim=True)
-    return (n_de / n_nu) * torch.solve(B, A).solution
+    # Equivalent implement based on 1) solver and 2) matrix inversion
+    if USE_SOLVE:
+        B = torch.sum(Kdenu, 1, keepdim=True)
+        return (n_de / n_nu) * torch.solve(B, A).solution
+    else:
+        B = Kdenu
+        return torch.matmul(torch.matmul(torch.inverse(A), B), torch.ones(n_nu, 1).to(device))
 
 def mmdsq_of(Kdede, Kdenu, Knunu):
     return torch.mean(Kdede) - 2 * torch.mean(Kdenu) + torch.mean(Knunu)
