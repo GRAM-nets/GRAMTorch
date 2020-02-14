@@ -15,33 +15,45 @@ python download.py -c bedroom
 
 ## Usage
 ```
-usage: main.py [-h] --dataset DATASET --model MODEL --dataroot DATAROOT [--workers WORKERS]
-               [--batchSize BATCHSIZE] [--imageSize IMAGESIZE] [--nz NZ]
-               [--ngf NGF] [--ndf NDF] [--niter NITER] [--lr LR]
-               [--beta1 BETA1] [--cuda] [--ngpu NGPU] [--netG NETG]
-               [--netD NETD]
+usage: main.py [-h] --dataset DATASET --model MODEL --dataroot DATAROOT
+               [--workers WORKERS] [--batchSize BATCHSIZE]
+               [--showSize SHOWSIZE] [--imageSize IMAGESIZE] [--nz NZ]
+               [--nk NK] [--ngf NGF] [--ncf NCF] [--n_epochs N_EPOCHS]
+               [--lr LR] [--beta1 BETA1] [--clip_ratio]
+               [--eps_ratio EPS_RATIO] [--cuda] [--gpu_id GPU_ID]
+               [--ngpu NGPU] [--netG NETG] [--netD NETD] [--netF NETF]
+               [--outf OUTF] [--monitor_heuristic] [--manualSeed MANUALSEED]
+               [--nowandb] [--classes CLASSES]
 
 optional arguments:
-  -h, --help            show this help message and exit
-  --dataset DATASET     cifar10 | lsun | mnist |imagenet | folder | lfw | fake
-  --model MODEL         gramnet | gan
-  --dataroot DATAROOT   path to dataset
-  --workers WORKERS     number of data loading workers
-  --batchSize BATCHSIZE input batch size
-  --imageSize IMAGESIZE the height / width of the input image to network
-  --nz NZ               size of the latent z vector
-  --ngf NGF
-  --ndf NDF
-  --niter NITER         number of epochs to train for
-  --lr LR               learning rate, default=0.0002
-  --beta1 BETA1         beta1 for adam. default=0.5
-  --cuda                enables cuda
-  --ngpu NGPU           number of GPUs to use
-  --netG NETG           path to netG (to continue training)
-  --netD NETD           path to netD (to continue training)
-  --outf OUTF           folder to output images and model checkpoints
-  --manualSeed SEED     manual seed
-  --classes CLASSES     comma separated list of classes for the lsun data set
+  -h, --help              show this help message and exit
+  --dataset DATASET       cifar10 | lsun | mnist |imagenet | folder | lfw | fake
+  --model MODEL           gramnet | gan
+  --dataroot DATAROOT     path to dataset
+  --workers WORKERS       number of data loading workers
+  --batchSize BATCHSIZE   input batch size
+  --showSize SHOWSIZE     size of display batch
+  --imageSize IMAGESIZE   the height / width of the input image to network
+  --nz NZ                 size of the latent z vector
+  --nk NK                 size of the projected k vector
+  --ngf NGF 
+  --ncf NCF 
+  --n_epochs N_EPOCHS     number of epochs to train for
+  --lr LR                 learning rate, default=0.0001
+  --beta1 BETA1           beta1 for adam. default=0.5
+  --clip_ratio            apply ratio clipping as suggested by one of the reviewer
+  --eps_ratio EPS_RATIO   add eps to the diagonal before solving
+  --cuda                  enables cuda
+  --gpu_id GPU_ID         default GPU ID to use
+  --ngpu NGPU             number of GPUs to use
+  --netG NETG             path to netG (to continue training)
+  --netD NETD             path to netD (to continue training)
+  --netF NETF             path to netF (to continue training)
+  --outf OUTF             folder to output images and model checkpoints
+  --monitor_heuristic     monitor heuristic σ
+  --manualSeed MANUALSEED manual seed
+  --nowandb               disables wandb
+  --classes CLASSES       comma separated list of classes for the lsun data set
 ```
 
 ## Acknowledgement
