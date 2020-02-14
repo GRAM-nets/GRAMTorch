@@ -1,5 +1,6 @@
 from __future__ import print_function
 import argparse
+import wandb
 import os
 import random
 import torch
@@ -18,26 +19,34 @@ parser.add_argument('--dataset', required=True, help='cifar10 | lsun | mnist |im
 parser.add_argument('--model', required=True, help='gramnet | gan')
 parser.add_argument('--dataroot', required=True, help='path to dataset')
 parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
-parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
+parser.add_argument('--batchSize', type=int, default=100, help='input batch size')
+parser.add_argument('--showSize', type=int, default=100, help='size of display batch')
 parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
 parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
 parser.add_argument('--nk', type=int, default=100, help='size of the projected k vector')
 parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ncf', type=int, default=64)
 parser.add_argument('--n_epochs', type=int, default=25, help='number of epochs to train for')
-parser.add_argument('--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
+parser.add_argument('--lr', type=float, default=0.0001, help='learning rate, default=0.0001')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
+parser.add_argument('--clip_ratio', action='store_true', help='apply ratio clipping as suggested by one of the reviewer')
+parser.add_argument('--eps_ratio', type=float, default=0.001, help='add eps to the diagonal before solving')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
+parser.add_argument('--gpu_id', type=int, default=0, help='default GPU ID to use')
 parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
 parser.add_argument('--netG', default='', help="path to netG (to continue training)")
 parser.add_argument('--netD', default='', help="path to netD (to continue training)")
 parser.add_argument('--netF', default='', help="path to netF (to continue training)")
 parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
+parser.add_argument('--monitor_heuristic', action='store_true', help='monitor heuristic σ')
 parser.add_argument('--manualSeed', type=int, help='manual seed')
+parser.add_argument('--nowandb', action='store_true', help='disables wandb')
 parser.add_argument('--classes', default='bedroom', help='comma separated list of classes for the lsun data set')
 
 opt = parser.parse_args()
 print(opt)
+if not opt.nowandb:
+    wandb.init(project="gramtorch", config=opt)
 
 try:
     os.makedirs(opt.outf)
@@ -102,7 +111,7 @@ assert dataset
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize,
                                          shuffle=True, num_workers=int(opt.workers))
 
-device = torch.device("cuda:0" if opt.cuda else "cpu")
+device = torch.device(f"cuda:{opt.gpu_id}" if opt.cuda else "cpu")
 ngpu = int(opt.ngpu)
 nz = int(opt.nz)
 nk = int(opt.nk)
@@ -119,6 +128,19 @@ def weights_init(m):
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
 
+def save_img(x_data, x_gen, epoch):
+    vutils.save_image(
+        x_data[0:opt.showSize],
+        f'{opt.outf}/{opt.dataset}-{opt.model}-data.png',
+        normalize=True
+    )
+    vutils.save_image(
+        x_gen[0:opt.showSize],
+        f'{opt.outf}/{opt.dataset}-{opt.model}-samples-epoch={epoch:03d}.png',
+        normalize=True
+    )
+    if not opt.nowandb:
+        wandb.log({"samples" : [wandb.Image(i) for i in x_gen[0:opt.showSize]]})
 
 class Generator(nn.Module):
     def __init__(self, ngpu):
@@ -159,6 +181,7 @@ class Critic(nn.Module):
     def __init__(self, ngpu, nout):
         super(Critic, self).__init__()
         self.ngpu = ngpu
+        self.nout = nout
         self.main = nn.Sequential(
             # input is (nc) x 64 x 64
             nn.Conv2d(nc, ncf, 4, 2, 1, bias=False),
@@ -177,10 +200,9 @@ class Critic(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ncf*8) x 4 x 4
         )
-        self.final = nn.Sequential(
-            nn.Linear(ncf * 8 * 4 * 4, 1, bias=False),
-            nn.Sigmoid()
-        )
+        self.final = nn.Linear(ncf * 8 * 4 * 4, nout)
+        if self.nout == 1:
+            self.final = nn.Sequential(self.final, nn.Sigmoid())
 
     def forward(self, input):
         if input.is_cuda and self.ngpu > 1:
@@ -191,7 +213,9 @@ class Critic(nn.Module):
             output = self.main(input)
             output = output.view(-1, ncf * 8 * 4 * 4)
             output = self.final(output)
-        return output.view(-1, 1).squeeze(1)
+        if self.nout == 1:
+            output = output.view(-1, 1).squeeze(1)
+        return output
 
 
 class GAN:
@@ -217,7 +241,7 @@ class GAN:
 
         criterion = nn.BCELoss()
 
-        fixed_noise = torch.randn(opt.batchSize, nz, 1, 1, device=device)
+        fixed_noise = torch.randn(opt.showSize, nz, 1, 1, device=device)
         real_label = 1
         fake_label = 0
 
@@ -267,17 +291,143 @@ class GAN:
                     % (epoch, opt.n_epochs, i, len(dataloader),
                         errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
                 if i % 100 == 0:
-                    vutils.save_image(real_cpu,
-                            '%s/real_samples.png' % opt.outf,
-                            normalize=True)
-                    fake = netG(fixed_noise)
-                    vutils.save_image(fake.detach(),
-                            '%s/fake_samples_epoch_%03d.png' % (opt.outf, epoch),
-                            normalize=True)
+                    netG.train(False)
+                    save_img(real_cpu, netG(fixed_noise).detach(), epoch)
+                    netG.train(True)
 
             # do checkpointing
-            torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.outf, epoch))
-            torch.save(netD.state_dict(), '%s/netD_epoch_%d.pth' % (opt.outf, epoch))
+            torch.save(netG.state_dict(), f'{opt.outf}/{opt.model}-netG-epoch={epoch}.pth')
+            torch.save(netD.state_dict(), f'{opt.outf}/{opt.model}-netD-epoch={epoch}.pth')
+
+
+### MMD utilities
+
+def euclidsq(x, y):
+    return torch.pow(torch.cdist(x, y), 2)
+
+def gaussian_gramian(esq, σ):
+    return torch.exp(torch.div(-esq, 2 * σ**2))
+
+def prepare(x_de, x_nu):
+    return euclidsq(x_de, x_de), euclidsq(x_de, x_nu), euclidsq(x_nu, x_nu)
+
+def kmm_ratios(Kdede, Kdenu, λ):
+    n_de, n_nu = Kdenu.shape
+    if λ > 0:
+        A = Kdede + λ * torch.eye(n_de).to(device)
+    else:
+        A = Kdede
+    B = torch.sum(Kdenu, 1, keepdim=True)
+    return (n_de / n_nu) * torch.solve(B, A).solution
+
+def mmdsq_of(Kdede, Kdenu, Knunu):
+    return torch.mean(Kdede) - 2 * torch.mean(Kdenu) + torch.mean(Knunu)
+
+def estimate_ratio_compute_mmd(x_de, x_nu, σs):
+    dsq_dede, dsq_denu, dsq_nunu = prepare(x_de, x_nu)
+    if opt.monitor_heuristic:
+        print(torch.median(dsq_dede).item(), torch.median(dsq_denu).item(), torch.median(dsq_nunu).item())
+    is_first = True
+    ratio = None
+    mmdsq = None
+    for σ in σs:
+        Kdede = gaussian_gramian(dsq_dede, σ)
+        Kdenu = gaussian_gramian(dsq_denu, σ)
+        Knunu = gaussian_gramian(dsq_nunu, σ)
+        if is_first:
+            ratio = kmm_ratios(Kdede, Kdenu, opt.eps_ratio)
+            mmdsq = mmdsq_of(Kdede, Kdenu, Knunu)
+            is_first = False
+        else:
+            ratio += kmm_ratios(Kdede, Kdenu, opt.eps_ratio)
+            mmdsq += mmdsq_of(Kdede, Kdenu, Knunu)
+    
+    raito = ratio / len(σs)
+    ratio = torch.relu(ratio) if opt.clip_ratio else ratio
+    mmd = torch.sqrt(torch.relu(mmdsq))
+    
+    return ratio, mmd
+
+def extract_grad(m):
+    gs = []
+    for p in m.parameters():
+        gs.append(p.grad.clone())
+    return gs
+
+def assign_grad(m, gs):
+    for p, g in zip(m.parameters(), gs):
+        p.grad = g
+
+
+class GRAMnet:
+    def __init__(self, ngpu):
+        netG = Generator(ngpu).to(device)
+        netG.apply(weights_init)
+        if opt.netG != '':
+            netG.load_state_dict(torch.load(opt.netG))
+        print(netG)
+        
+        netF = Critic(ngpu, nk).to(device)
+        netF.apply(weights_init)
+        if opt.netF != '':
+            netF.load_state_dict(torch.load(opt.netF))
+        print(netF)
+
+        self.netG = netG
+        self.netF = netF
+
+    def train(self):
+        netG = self.netG
+        netF = self.netF
+
+        fixed_noise = torch.randn(opt.showSize, nz, 1, 1, device=device)
+
+        # setup optimizer
+        optimizerF = optim.Adam(netF.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+        optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+
+        for epoch in range(opt.n_epochs):
+            for i, data in enumerate(dataloader, 0):
+                x_data = data[0].to(device)
+                batch_size = x_data.size(0)
+
+                netF.zero_grad()
+                netG.zero_grad()
+                # Generate samples
+                noise = torch.randn(batch_size, nz, 1, 1, device=device)
+                x_gen = netG(noise)
+                # Project to low-dimensional space
+                fx_data = netF(x_data)
+                fx_gen = netF(x_gen)
+                # Compute ratio and mmd
+                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, [1.0, 2.0, 4.0, 8.0, 16.0])
+                lossG = mmd
+                pearson_divergence = torch.mean(torch.pow(ratio - 1, 2))
+                lossF = -pearson_divergence
+                if not opt.clip_ratio:  # add positivity regularizer if not clipping
+                    lossF -= torch.mean(ratio)
+                # Update G and F simultaneously
+                lossG.backward(retain_graph=True)
+                gsG = extract_grad(netG)
+                netF.zero_grad()
+                netG.zero_grad()
+                lossF.backward()
+                optimizerF.step()
+                assign_grad(netG, gsG)
+                optimizerG.step()
+
+                print('[%d/%d][%d/%d] Loss_F: %.4f Loss_G: %.4f'
+                    % (epoch, opt.n_epochs, i, len(dataloader), lossF.item(), lossG.item()))
+                if i % 100 == 0:
+                    netG.train(False)
+                    save_img(x_data, netG(fixed_noise).detach(), epoch)
+                    netG.train(True)
+                if not opt.nowandb:
+                    wandb.log({"lossG" : lossG, "lossF" : lossF})
+
+            # do checkpointing
+            torch.save(netG.state_dict(), f'{opt.outf}/{opt.model}-netG-epoch={epoch}.pth')
+            torch.save(netF.state_dict(), f'{opt.outf}/{opt.model}-netF-epoch={epoch}.pth')
 
 
 if opt.model == "gan":
