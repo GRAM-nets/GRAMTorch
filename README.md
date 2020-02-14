@@ -2,10 +2,9 @@
 
 This example implements the paper [Generative Ratio Matching Networks](https://openreview.net/forum?id=SJg7spEYDS).
 
-After every 100 training iterations, the files `real_samples.png` and `fake_samples.png` are written to disk
-with the samples from the generative model.
+After every 100 training iterations, the files `$DATASET-$MODEL-data.png` and `$DATASET-$MODEL-samples-epoch=$EPOCH.png` are written to disk with the samples from the generative model.
 
-After every epoch, models are saved to: `netG_epoch_%d.pth` and `netD_epoch_%d.pth`
+After every epoch, models are saved to: `$DATASET-$MODEL-netG-epoch=$EPOCH.pth` and `$DATASET-$MODEL-netD-epoch=$EPOCH.pth`
 
 ## Downloading the dataset
 You can download the LSUN dataset by cloning [this repo](https://github.com/fyu/lsun) and running
@@ -55,6 +54,9 @@ optional arguments:
   --nowandb               disables wandb
   --classes CLASSES       comma separated list of classes for the lsun data set
 ```
+
+Note that by default [Weights & Biases](https://www.wandb.ai/) is used for logging, 
+but you can disable it by `--nowandb`.
 
 ## Acknowledgement
 
