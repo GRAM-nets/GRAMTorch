@@ -3,6 +3,7 @@ import argparse
 import wandb
 import os
 import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -27,7 +28,7 @@ parser.add_argument('--nk', type=int, default=100, help='size of the projected k
 parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ncf', type=int, default=64)
 parser.add_argument('--n_epochs', type=int, default=25, help='number of epochs to train for')
-parser.add_argument('--lr', type=float, default=0.0001, help='learning rate, default=0.0001')
+parser.add_argument('--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument('--clip_ratio', action='store_true', help='apply ratio clipping as suggested by one of the reviewer')
 parser.add_argument('--eps_ratio', type=float, default=0.001, help='add eps to the diagonal before solving')
@@ -200,9 +201,10 @@ class Critic(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ncf*8) x 4 x 4
         )
-        self.final = nn.Linear(ncf * 8 * 4 * 4, nout)
-        if self.nout == 1:
-            self.final = nn.Sequential(self.final, nn.Sigmoid())
+        final = nn.Linear(ncf * 8 * 4 * 4, nout)
+        if nout == 1:
+            final = nn.Sequential(final, nn.Sigmoid())
+        self.final = final
 
     def forward(self, input):
         if input.is_cuda and self.ngpu > 1:
@@ -342,7 +344,7 @@ def estimate_ratio_compute_mmd(x_de, x_nu, σs):
             torch.median(torch.cat([dsq_dede.squeeze(), dsq_denu.squeeze(), dsq_nunu.squeeze()], 1))
         )
         wandb.log({"heuristic_sigma" : sigma})
-        print("heuristic sigma: ", sigma)
+        #print("heuristic sigma: ", sigma)
     is_first = True
     ratio = None
     mmdsq = None
@@ -374,6 +376,15 @@ def assign_grad(m, gs):
     for p, g in zip(m.parameters(), gs):
         p.grad = g
 
+def sim_step(optimizer1, optimizer2, m1, m2, loss1, loss2):
+    loss1.backward(retain_graph=True)
+    gs1 = extract_grad(m1)
+    m1.zero_grad()
+    m2.zero_grad()
+    loss2.backward()
+    optimizer2.step()
+    assign_grad(m1, gs1)
+    optimizer1.step()
 
 class GRAMnet:
     def __init__(self, ngpu):
@@ -392,12 +403,20 @@ class GRAMnet:
         self.netG = netG
         self.netF = netF
 
+        if opt.dataset == "mnist":
+            sigma_list = np.sqrt([10, 50, 100, 500])
+        elif opt.dataset = "cifar10":
+            sigma_list = np.sqrt([1, 2, 4, 8, 16])
+        else:
+            sigma_list = [1, 5, 10, 50, 100]
+        self.sigma_list = sigma_list
+
     def train(self):
 
         netG = self.netG
         netF = self.netF
 
-        fixed_noise = torch.rand(opt.showSize, nz, 1, 1, device=device)
+        fixed_noise = torch.randn(opt.showSize, nz, 1, 1, device=device)
 
         # setup optimizer
         optimizerF = optim.Adam(netF.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -411,28 +430,21 @@ class GRAMnet:
                 netF.zero_grad()
                 netG.zero_grad()
                 # Generate samples
-                noise = torch.rand(batch_size, nz, 1, 1, device=device)
+                noise = torch.randn(batch_size, nz, 1, 1, device=device)
                 x_gen = netG(noise)
                 # Project to low-dimensional space
                 fx_data = netF(x_data)
                 fx_gen = netF(x_gen)
                 # Compute ratio and mmd
-                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, [0.5, 1.0, 2.0, 4.0, 8.0])
-                lossG = mmd
+                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, self.sigma_list)
                 pearson_divergence = torch.mean(torch.pow(ratio - 1, 2))
+                lossG = mmd
                 lossF = -pearson_divergence
                 # Add positivity regularizer if not clipping
                 if not opt.clip_ratio:  
                     lossF -= torch.mean(ratio)
                 # Update G and F simultaneously
-                lossG.backward(retain_graph=True)
-                gsG = extract_grad(netG)
-                netF.zero_grad()
-                netG.zero_grad()
-                lossF.backward()
-                optimizerF.step()
-                assign_grad(netG, gsG)
-                optimizerG.step()
+                sim_step(optimizerG, optimizerF, netG, netF, lossG, lossF)
 
                 print('[%d/%d][%d/%d] Loss_F: %.4f Loss_G: %.4f'
                     % (epoch, opt.n_epochs, i, len(dataloader), lossF.item(), lossG.item()))

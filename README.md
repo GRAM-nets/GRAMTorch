@@ -38,7 +38,7 @@ optional arguments:
   --ngf NGF 
   --ncf NCF 
   --n_epochs N_EPOCHS     number of epochs to train for
-  --lr LR                 learning rate, default=0.0001
+  --lr LR                 learning rate, default=0.0002
   --beta1 BETA1           beta1 for adam. default=0.5
   --clip_ratio            apply ratio clipping as suggested by one of the reviewer
   --eps_ratio EPS_RATIO   add eps to the diagonal before solving
