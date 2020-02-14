@@ -294,6 +294,11 @@ class GAN:
                     netG.train(False)
                     save_img(real_cpu, netG(fixed_noise).detach(), epoch)
                     netG.train(True)
+                if not opt.nowandb:
+                    wandb.log({
+                        "lossG" : errG, "lossF" : errD, 
+                        "D(x)" : D_G_z1, "D(G(z))" : D_G_z2,
+                    })
 
             # do checkpointing
             torch.save(netG.state_dict(), f'{opt.outf}/{opt.model}-netG-epoch={epoch}.pth')
@@ -326,7 +331,11 @@ def mmdsq_of(Kdede, Kdenu, Knunu):
 def estimate_ratio_compute_mmd(x_de, x_nu, σs):
     dsq_dede, dsq_denu, dsq_nunu = prepare(x_de, x_nu)
     if opt.monitor_heuristic:
-        print(torch.median(dsq_dede).item(), torch.median(dsq_denu).item(), torch.median(dsq_nunu).item())
+        sigma = torch.sqrt(
+            torch.median(torch.cat([dsq_dede.squeeze(), dsq_denu.squeeze(), dsq_nunu.squeeze()], 1))
+        )
+        wandb.log({"heuristic_sigma" : sigma})
+        print("heuristic sigma: ", sigma)
     is_first = True
     ratio = None
     mmdsq = None
@@ -377,10 +386,11 @@ class GRAMnet:
         self.netF = netF
 
     def train(self):
+
         netG = self.netG
         netF = self.netF
 
-        fixed_noise = torch.randn(opt.showSize, nz, 1, 1, device=device)
+        fixed_noise = torch.rand(opt.showSize, nz, 1, 1, device=device)
 
         # setup optimizer
         optimizerF = optim.Adam(netF.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -394,13 +404,13 @@ class GRAMnet:
                 netF.zero_grad()
                 netG.zero_grad()
                 # Generate samples
-                noise = torch.randn(batch_size, nz, 1, 1, device=device)
+                noise = torch.rand(batch_size, nz, 1, 1, device=device)
                 x_gen = netG(noise)
                 # Project to low-dimensional space
                 fx_data = netF(x_data)
                 fx_gen = netF(x_gen)
                 # Compute ratio and mmd
-                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, [1.0, 2.0, 4.0, 8.0, 16.0])
+                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, [0.5, 1.0, 2.0, 4.0, 8.0])
                 lossG = mmd
                 pearson_divergence = torch.mean(torch.pow(ratio - 1, 2))
                 lossF = -pearson_divergence

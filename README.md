@@ -61,3 +61,9 @@ but you can disable it by `--nowandb`.
 ## Acknowledgement
 
 The code is heavily based on [the DCGAN example of PyTorch](https://github.com/pytorch/examples/tree/master/dcgan).
+
+---
+
+| Maintainer |
+| :-: |
+| [Kai Xu](http://xuk.ai/) |
