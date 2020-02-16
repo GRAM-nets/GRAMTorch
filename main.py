@@ -339,12 +339,25 @@ def mmdsq_of(Kdede, Kdenu, Knunu):
 
 def estimate_ratio_compute_mmd(x_de, x_nu, σs):
     dsq_dede, dsq_denu, dsq_nunu = prepare(x_de, x_nu)
-    if opt.monitor_heuristic:
+    if len(σs) == 0:
+        # A heuristic is to use the median of pairwise distances as σ, suggested by Sugiyama's book
         sigma = torch.sqrt(
-            torch.median(torch.cat([dsq_dede.squeeze(), dsq_denu.squeeze(), dsq_nunu.squeeze()], 1))
-        )
-        wandb.log({"heuristic_sigma" : sigma})
-        #print("heuristic sigma: ", sigma)
+            torch.median(
+                torch.cat([dsq_dede.squeeze(), dsq_denu.squeeze(), dsq_nunu.squeeze()], 1)
+            )
+        ).item()
+        if not opt.nowandb:
+            wandb.log({"heuristic_sigma" : sigma})
+        elif opt.monitor_heuristic:
+            print("heuristic sigma: ", sigma)
+        # Use [sigma / 5, sigma / 3, sigma, sigma * 3, sigma * 5] if nothing provided
+        if len(σs) == 0:
+            σs.append(sigma)
+            σs.append(sigma * 0.333)
+            σs.append(sigma * 0.2)
+            σs.append(sigma / 0.2)
+            σs.append(sigma / 0.333)
+    
     is_first = True
     ratio = None
     mmdsq = None
@@ -406,9 +419,9 @@ class GRAMnet:
         if opt.dataset == "mnist":
             sigma_list = np.sqrt([0.01, 1, 100, 10000])
         elif opt.dataset == "cifar10":
-            sigma_list = np.sqrt([1, 2, 4, 8, 16])
+            sigma_list = np.sqrt([1/8, 1, 8, 64, 512])
         else:
-            sigma_list = [1, 5, 10, 50, 100]
+            sigma_list = [] # this will trigger automatic choice of sigma
         self.sigma_list = sigma_list
 
     def train(self):
@@ -436,7 +449,7 @@ class GRAMnet:
                 fx_data = netF(x_data)
                 fx_gen = netF(x_gen)
                 # Compute ratio and mmd
-                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, self.sigma_list)
+                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, list(self.sigma_list))
                 pearson_divergence = torch.mean(torch.pow(ratio - 1, 2))
                 lossG = mmd
                 lossF = -pearson_divergence
