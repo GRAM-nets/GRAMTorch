@@ -24,7 +24,7 @@ parser.add_argument('--batchSize', type=int, default=100, help='input batch size
 parser.add_argument('--showSize', type=int, default=100, help='size of display batch')
 parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
 parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
-parser.add_argument('--nk', type=int, default=100, help='size of the projected k vector')
+parser.add_argument('--nk', type=int, default=200, help='size of the projected k vector')
 parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ncf', type=int, default=64)
 parser.add_argument('--n_epochs', type=int, default=25, help='number of epochs to train for')
@@ -419,7 +419,7 @@ class GRAMnet:
         if opt.dataset == "mnist":
             sigma_list = np.sqrt([0.01, 1, 100, 10000])
         elif opt.dataset == "cifar10":
-            sigma_list = np.sqrt([1/8, 1, 8, 64, 512])
+            sigma_list = [1, 10, 100, 1000]
         else:
             sigma_list = [] # this will trigger automatic choice of sigma
         self.sigma_list = sigma_list
@@ -429,7 +429,7 @@ class GRAMnet:
         netG = self.netG
         netF = self.netF
 
-        fixed_noise = torch.randn(opt.showSize, nz, 1, 1, device=device)
+        fixed_noise = torch.rand(opt.showSize, nz, 1, 1, device=device)
 
         # setup optimizer
         optimizerF = optim.Adam(netF.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -443,19 +443,21 @@ class GRAMnet:
                 netF.zero_grad()
                 netG.zero_grad()
                 # Generate samples
-                noise = torch.randn(batch_size, nz, 1, 1, device=device)
+                noise = torch.rand(batch_size, nz, 1, 1, device=device)
                 x_gen = netG(noise)
                 # Project to low-dimensional space
                 fx_data = netF(x_data)
                 fx_gen = netF(x_gen)
                 # Compute ratio and mmd
-                ratio, mmd = estimate_ratio_compute_mmd(fx_gen, fx_data, list(self.sigma_list))
+                ratio, mmd = estimate_ratio_compute_mmd(
+                    fx_gen, fx_data, list(self.sigma_list)  # `list` is need to make a copy of sigmas
+                )
                 pearson_divergence = torch.mean(torch.pow(ratio - 1, 2))
                 lossG = mmd
                 lossF = -pearson_divergence
                 # Add positivity regularizer if not clipping
                 if not opt.clip_ratio:  
-                    lossF -= torch.mean(ratio)
+                    lossF -= torch.sum(ratio)
                 # Update G and F simultaneously
                 sim_step(optimizerG, optimizerF, netG, netF, lossG, lossF)
 
