@@ -6,6 +6,8 @@ After every 100 training iterations, the files `$DATASET-$MODEL-data.png` and `$
 
 After every epoch, models are saved to: `$DATASET-$MODEL-netG-epoch=$EPOCH.pth` and `$DATASET-$MODEL-netD-epoch=$EPOCH.pth`
 
+**NOTE**: This repo is NOT the code used to produce the results in the paper. For reproducibility, see [JuliaGRAM](https://github.com/GRAM-nets/JuliaGRAM) and [GRAMFlow](https://github.com/GRAM-nets/GRAMFlow) instead.
+
 ## Downloading the dataset
 You can download the LSUN dataset by cloning [this repo](https://github.com/fyu/lsun) and running
 ```
